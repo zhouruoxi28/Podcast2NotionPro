@@ -294,14 +294,23 @@ class NotionHelper:
             results.extend(response.get("results"))
         return results
 
+    @retry(stop_max_attempt_number=3, wait_fixed=5000)
     def get_all_podcast(self):
         results = self.query_all(self.podcast_database_id)
-        podcast_list = []
+        podcast_dict = {}
         for result in results:
-            podcast_list.append(
-                utils.get_property_value(result.get("properties").get("播客id"))
-            )
-        return podcast_list
+            pid = utils.get_property_value(result.get("properties").get("Pid"))
+            podcast_dict[pid] = {
+                "page_id": result.get("id"),
+                "最后更新时间": utils.get_property_value(
+                    result.get("properties").get("最后更新时间")
+                ),
+                "收听时长": utils.get_property_value(
+                    result.get("properties").get("收听时长")
+                ),
+                "通义链接": utils.get_property_value(result.get("properties").get("通义链接"))
+            }
+        return podcast_dict
 
     def get_all_episode(self):
         results = self.query_all(self.episode_database_id)
