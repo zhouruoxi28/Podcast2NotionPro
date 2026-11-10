@@ -340,8 +340,8 @@ class NotionHelper:
                 "状态": utils.get_property_value(
                     result.get("properties").get("状态")
                 ),
-                "喜欢": utils.get_property_value(
-                    result.get("properties").get("喜欢")
+                "偏好标记": sorted([o.get("name") for o in (utils.get_property_value(
+                    result.get("properties").get("偏好标记")) or []) if o.get("name")]
                 ),
                 "收听进度": utils.get_property_value(
                     result.get("properties").get("收听进度")
