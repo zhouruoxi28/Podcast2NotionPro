@@ -22,7 +22,7 @@ book_properties_type_dict = {
     "时间戳": NUMBER,
     "状态": STATUS,
     "Podcast": RELATION,
-    "喜欢": CHECKBOX,
+    "偏好标记": MULTI_SELECT,
     "日期": DATE,
     "收听进度": NUMBER,
 }
