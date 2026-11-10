@@ -304,7 +304,7 @@ def insert_episode(episodes, d):
         episode["音频"] = result.get("media").get("source").get("url")
         episode["Eid"] = eid
         episode["时长"] = result.get("duration")
-        episode["喜欢"] = result.get("isPicked")
+        existing_marks = (notion_episodes.get(eid) or {}).get("偏好标记") or []; episode["偏好标记"] = sorted(set(existing_marks) | {"喜欢"}) if result.get("isPicked") else list(existing_marks)
         episode["收听进度"] = result.get("progress")
         episode["Podcast"] = [d.get(pid)[0]]
         episode["链接"] = f"hhttps://www.xiaoyuzhoufm.com/episode/{result.get('eid')}"
@@ -337,7 +337,7 @@ def insert_episode(episodes, d):
                 episode["通义链接"] = old_episode.get("通义链接")
             if (
                 old_episode.get("状态") == episode.get("状态")
-                and old_episode.get("喜欢") == episode.get("喜欢")
+                and old_episode.get("偏好标记") == episode.get("偏好标记")
                 and old_episode.get("收听进度") == episode.get("收听进度")
                 and old_episode.get("日期") == episode.get("日期")
                 and old_episode.get("通义链接") == episode.get("通义链接")
