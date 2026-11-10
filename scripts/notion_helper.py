@@ -30,6 +30,22 @@ BOOKMARK_ICON_URL = "https://www.notion.so/icons/bookmark_gray.svg"
 
 
 
+def _is_rate_limit_error(exception):
+    """只对 Notion 429 限流错误重试，其他异常直接抛出。"""
+    message = str(exception).lower()
+    return "429" in message or "rate limit" in message
+
+
+# 针对 Notion 429 限流的重试装饰器：最多尝试 7 次，等待时间指数增长，
+# 从 15 秒起（15s、30s、60s、120s、240s），上限 240 秒。
+retry_on_rate_limit = retry(
+    retry_on_exception=_is_rate_limit_error,
+    stop_max_attempt_number=7,
+    wait_exponential_multiplier=15000,
+    wait_exponential_max=240000,
+)
+
+
 class NotionHelper:
     database_name_dict = {
         "PODCAST_DATABASE_NAME": "Podcast",
@@ -97,7 +113,7 @@ class NotionHelper:
             self.update_database(self.podcast_database_id)
         if self.episode_database_id:
             self.update_database(self.episode_database_id)
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def update_database(self, data_source_id):
         """更新数据库"""
         response = self.client.data_sources.retrieve(data_source_id=data_source_id)
@@ -139,6 +155,7 @@ class NotionHelper:
             raise Exception(f"获取NotionID失败，请检查输入的Url是否正确")
 
 
+    @retry_on_rate_limit
     def search_database(self, block_id):
         children = self.client.blocks.children.list(block_id=block_id)["results"]
         # 遍历子块
@@ -155,6 +172,7 @@ class NotionHelper:
             if "has_children" in child and child["has_children"]:
                 self.search_database(child["id"])
 
+    @retry_on_rate_limit
     def get_data_source_id(self, database_id):
         """Resolve a database (container) id to its single data source id."""
         if not database_id:
@@ -168,7 +186,7 @@ class NotionHelper:
         return self._ds_cache[database_id]
 
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def update_image_block_link(self, block_id, new_image_url):
         # 更新 image block 的链接
         self.client.blocks.update(
@@ -217,7 +235,7 @@ class NotionHelper:
             day, self.day_database_id, self.get_date_icon(date, "day"), properties
         )
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def get_relation_id(self, name, id, icon, properties={}):
         # 根据名称去数据库中查询，如有则直接返回id，没有则新建一个
         key = f"{id}_{name}"
@@ -236,47 +254,47 @@ class NotionHelper:
         self.__cache[key] = page_id
         return page_id
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def update_book_page(self, page_id, properties):
         return self.client.pages.update(page_id=page_id, properties=properties)
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def update_page(self, page_id, properties):
         return self.client.pages.update(page_id=page_id, properties=properties)
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def create_page(self, parent, properties, icon):
         return self.client.pages.create(
             parent=parent, properties=properties, icon=icon, cover=icon
         )
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def query(self, **kwargs):
         kwargs = {k: v for k, v in kwargs.items() if v}
         if "database_id" in kwargs:
             kwargs["data_source_id"] = kwargs.pop("database_id")
         return self.client.data_sources.query(**kwargs)
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def get_block_children(self, id):
         response = self.client.blocks.children.list(id)
         return response.get("results")
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def append_blocks(self, block_id, children):
         return self.client.blocks.children.append(block_id=block_id, children=children)
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def append_blocks_after(self, block_id, children, after):
         return self.client.blocks.children.append(
             block_id=block_id, children=children, after=after
         )
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def delete_block(self, block_id):
         return self.client.blocks.delete(block_id=block_id)
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def query_all_by_filter(self, data_source_id, filter,sorts):
         results = []
         has_more = True
@@ -294,7 +312,7 @@ class NotionHelper:
             results.extend(response.get("results"))
         return results
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def get_all_podcast(self):
         results = self.query_all(self.podcast_database_id)
         podcast_dict = {}
@@ -341,7 +359,7 @@ class NotionHelper:
         return episode_dict
 
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def query_all(self, data_source_id):
         """获取database中所有的数据"""
         results = []
@@ -388,7 +406,7 @@ class NotionHelper:
                 self.get_day_relation_id(date),
             ]
         )
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @retry_on_rate_limit
     def update_heatmap(self, block_id, url):
         # 更新 image block 的链接
         return self.client.blocks.update(block_id=block_id, embed={"url": url})
