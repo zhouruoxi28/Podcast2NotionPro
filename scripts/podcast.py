@@ -229,8 +229,8 @@ def insert_podcast():
         ]
         properties = utils.get_properties(podcast, movie_properties_type_dict)
         parent = {
-            "database_id": notion_helper.podcast_database_id,
-            "type": "database_id",
+            "type": "data_source_id",
+            "data_source_id": notion_helper.podcast_database_id,
         }
         if page_id:
             notion_helper.update_page(page_id=page_id, properties=properties)
@@ -361,8 +361,8 @@ def insert_episode(episodes, d):
                 date=pendulum.from_timestamp(episode.get("日期"), tz="Asia/Shanghai"),
             )
         parent = {
-            "database_id": notion_helper.episode_database_id,
-            "type": "database_id",
+            "type": "data_source_id",
+            "data_source_id": notion_helper.episode_database_id,
         }
         if page_id:
             notion_helper.update_page(page_id=page_id, properties=properties)
