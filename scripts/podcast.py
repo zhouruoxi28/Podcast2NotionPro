@@ -290,6 +290,7 @@ def insert_episode(episodes, d):
     episodes.sort(key=lambda x: x["pubDate"])
     notion_episodes = notion_helper.get_all_episode()
     for index, result in enumerate(episodes):
+        time.sleep(0.4)
         pid = result.get("pid")
         if pid not in d:
             continue
