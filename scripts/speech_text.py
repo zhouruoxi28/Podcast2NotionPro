@@ -277,8 +277,8 @@ def create_mindmap(title, icon):
         else:
             notion_helper.delete_block(result.get("id"))
     parent = {
-        "database_id": notion_helper.mindmap_database_id,
-        "type": "database_id",
+        "type": "data_source_id",
+        "data_source_id": notion_helper.mindmap_database_id,
     }
     properties = {
         "标题": {"title": [{"type": "text", "text": {"content": title}}]},
