@@ -217,7 +217,7 @@ class NotionHelper:
         )
 
     def get_year_relation_id(self, date):
-        year = date.strftime("%Y年")
+        year = date.strftime("%Y")
         start, end = get_first_and_last_day_of_year(date)
         properties = {"日期": get_date(format_date(start), format_date(end))}
         return self.get_relation_id(
