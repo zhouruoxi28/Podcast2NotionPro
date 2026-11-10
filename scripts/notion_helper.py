@@ -3,6 +3,7 @@ import os
 import re
 import time
 
+
 from notion_client import Client
 from retrying import retry
 from datetime import timedelta
@@ -20,10 +21,13 @@ from utils import (
     get_title,
 )
 
+
 TAG_ICON_URL = "https://www.notion.so/icons/tag_gray.svg"
 USER_ICON_URL = "https://www.notion.so/icons/user-circle-filled_gray.svg"
 TARGET_ICON_URL = "https://www.notion.so/icons/target_red.svg"
 BOOKMARK_ICON_URL = "https://www.notion.so/icons/bookmark_gray.svg"
+
+
 
 
 class NotionHelper:
@@ -38,9 +42,11 @@ class NotionHelper:
     heatmap_block_id = None
     property_dict = {}
 
+
     def __init__(self):
         self.client = Client(auth=os.getenv("NOTION_TOKEN").strip(), log_level=logging.ERROR)
         self.__cache = {}
+        self._ds_cache = {}
         self.page_id = self.extract_page_id(os.getenv("NOTION_PAGE").strip())
         self.search_database(self.page_id)
         for key in self.database_name_dict.keys():
@@ -61,8 +67,14 @@ class NotionHelper:
         self.mindmap_database_id = self.database_id_dict.get(
             self.database_name_dict.get("MINDMAP_DATABASE_NAME")
         )
-        r = self.client.databases.retrieve(database_id=self.episode_database_id)
-        for key, value in r.get("properties").items():
+        # 以下 *_database_id 自此起存放 data source id（Notion API 2025-09-03 起查询/建页/改字段都要用 data source id，database id 只是容器）
+        self.episode_database_id = self.get_data_source_id(self.episode_database_id)
+        self.podcast_database_id = self.get_data_source_id(self.podcast_database_id)
+        self.author_database_id = self.get_data_source_id(self.author_database_id)
+        self.all_database_id = self.get_data_source_id(self.all_database_id)
+        self.mindmap_database_id = self.get_data_source_id(self.mindmap_database_id)
+        ds = self.client.data_sources.retrieve(data_source_id=self.episode_database_id)
+        for key, value in (ds.get("properties") or {}).items():
             self.property_dict[key] = value
         self.day_database_id = self.get_relation_database_id(
             self.property_dict.get("日")
@@ -86,11 +98,11 @@ class NotionHelper:
         if self.episode_database_id:
             self.update_database(self.episode_database_id)
     @retry(stop_max_attempt_number=3, wait_fixed=5000)
-    def update_database(self,database_id):
+    def update_database(self, data_source_id):
         """更新数据库"""
-        response = self.client.databases.retrieve(database_id=database_id)
+        response = self.client.data_sources.retrieve(data_source_id=data_source_id)
         id = response.get("id")
-        properties = response.get("properties")
+        properties = response.get("properties") or {}
         update_properties = {}
         if (
             properties.get("通义链接") is None
@@ -98,9 +110,17 @@ class NotionHelper:
         ):
             update_properties["通义链接"] = {"url": {}}
         if len(update_properties) > 0:
-            self.client.databases.update(database_id=id, properties=update_properties)
+            self.client.data_sources.update(data_source_id=id, properties=update_properties)
     def get_relation_database_id(self, property):
-        return property.get("relation").get("database_id")
+        if not property:
+            return None
+        relation = property.get("relation") or {}
+        if relation.get("data_source_id"):
+            return relation.get("data_source_id")
+        if relation.get("database_id"):
+            return self.get_data_source_id(relation.get("database_id"))
+        return None
+
 
     def write_database_id(self, database_id):
         env_file = os.getenv('GITHUB_ENV')
@@ -118,6 +138,7 @@ class NotionHelper:
         else:
             raise Exception(f"获取NotionID失败，请检查输入的Url是否正确")
 
+
     def search_database(self, block_id):
         children = self.client.blocks.children.list(block_id=block_id)["results"]
         # 遍历子块
@@ -134,12 +155,26 @@ class NotionHelper:
             if "has_children" in child and child["has_children"]:
                 self.search_database(child["id"])
 
+    def get_data_source_id(self, database_id):
+        """Resolve a database (container) id to its single data source id."""
+        if not database_id:
+            return None
+        if database_id not in self._ds_cache:
+            db = self.client.databases.retrieve(database_id=database_id)
+            sources = db.get("data_sources") or []
+            if not sources:
+                raise Exception(f"数据库 {database_id} 下没有 data source")
+            self._ds_cache[database_id] = sources[0].get("id")
+        return self._ds_cache[database_id]
+
+
     @retry(stop_max_attempt_number=3, wait_fixed=5000)
     def update_image_block_link(self, block_id, new_image_url):
         # 更新 image block 的链接
         self.client.blocks.update(
             block_id=block_id, image={"external": {"url": new_image_url}}
         )
+
 
     def get_week_relation_id(self, date):
         year = date.isocalendar().year
@@ -164,7 +199,7 @@ class NotionHelper:
         )
 
     def get_year_relation_id(self, date):
-        year = date.strftime("%Y")
+        year = date.strftime("%Y年")
         start, end = get_first_and_last_day_of_year(date)
         properties = {"日期": get_date(format_date(start), format_date(end))}
         return self.get_relation_id(
@@ -184,13 +219,14 @@ class NotionHelper:
 
     @retry(stop_max_attempt_number=3, wait_fixed=5000)
     def get_relation_id(self, name, id, icon, properties={}):
-        key = f"{id}{name}"
+        # 根据名称去数据库中查询，如有则直接返回id，没有则新建一个
+        key = f"{id}_{name}"
         if key in self.__cache:
-            return self.__cache.get(key)
+            return self.__cache[key]
         filter = {"property": "标题", "title": {"equals": name}}
-        response = self.client.databases.query(database_id=id, filter=filter)
+        response = self.client.data_sources.query(data_source_id=id, filter=filter)
         if len(response.get("results")) == 0:
-            parent = {"database_id": id, "type": "database_id"}
+            parent = {"type": "data_source_id", "data_source_id": id}
             properties["标题"] = get_title(name)
             page_id = self.client.pages.create(
                 parent=parent, properties=properties, icon=get_icon(icon)
@@ -217,7 +253,9 @@ class NotionHelper:
     @retry(stop_max_attempt_number=3, wait_fixed=5000)
     def query(self, **kwargs):
         kwargs = {k: v for k, v in kwargs.items() if v}
-        return self.client.databases.query(**kwargs)
+        if "database_id" in kwargs:
+            kwargs["data_source_id"] = kwargs.pop("database_id")
+        return self.client.data_sources.query(**kwargs)
 
     @retry(stop_max_attempt_number=3, wait_fixed=5000)
     def get_block_children(self, id):
@@ -239,13 +277,13 @@ class NotionHelper:
         return self.client.blocks.delete(block_id=block_id)
 
     @retry(stop_max_attempt_number=3, wait_fixed=5000)
-    def query_all_by_filter(self, database_id, filter,sorts):
+    def query_all_by_filter(self, data_source_id, filter,sorts):
         results = []
         has_more = True
         start_cursor = None
         while has_more:
-            response = self.client.databases.query(
-                database_id=database_id,
+            response = self.client.data_sources.query(
+                data_source_id=data_source_id,
                 filter=filter,
                 sorts=sorts,
                 start_cursor=start_cursor,
@@ -255,27 +293,16 @@ class NotionHelper:
             has_more = response.get("has_more")
             results.extend(response.get("results"))
         return results
-    
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+
     def get_all_podcast(self):
         results = self.query_all(self.podcast_database_id)
-        podcast_dict = {}
+        podcast_list = []
         for result in results:
-            pid = utils.get_property_value(result.get("properties").get("Pid"))
-            podcast_dict[pid] = {
-                "page_id": result.get("id"),
-                "最后更新时间": utils.get_property_value(
-                    result.get("properties").get("最后更新时间")
-                ),
-                "收听时长": utils.get_property_value(
-                    result.get("properties").get("收听时长")
-                ),
-                "通义链接": utils.get_property_value(result.get("properties").get("通义链接"))
-                
-            }
-        return podcast_dict
-    
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+            podcast_list.append(
+                utils.get_property_value(result.get("properties").get("播客id"))
+            )
+        return podcast_list
+
     def get_all_episode(self):
         results = self.query_all(self.episode_database_id)
         episode_dict = {}
@@ -288,10 +315,10 @@ class NotionHelper:
                 ),
                 "喜欢": utils.get_property_value(
                     result.get("properties").get("喜欢")
-                ),          
+                ),
                 "收听进度": utils.get_property_value(
                     result.get("properties").get("收听进度")
-                ),          
+                ),
                 "语音转文字状态": utils.get_property_value(
                     result.get("properties").get("语音转文字状态")
                 ),
@@ -300,19 +327,20 @@ class NotionHelper:
                 ),
                 "日期": utils.get_property_value(
                     result.get("properties").get("日期")
-                )
+                ),
             }
         return episode_dict
 
+
     @retry(stop_max_attempt_number=3, wait_fixed=5000)
-    def query_all(self, database_id):
+    def query_all(self, data_source_id):
         """获取database中所有的数据"""
         results = []
         has_more = True
         start_cursor = None
         while has_more:
-            response = self.client.databases.query(
-                database_id=database_id,
+            response = self.client.data_sources.query(
+                data_source_id=data_source_id,
                 start_cursor=start_cursor,
                 page_size=100,
             )
@@ -321,12 +349,14 @@ class NotionHelper:
             results.extend(response.get("results"))
         return results
 
+
     def get_all_relation(self, properties):
         properties["全部"] = get_relation(
             [
                 self.get_relation_id("全部", self.all_database_id, TARGET_ICON_URL),
             ]
         )
+
 
     def get_date_relation(self, properties, date):
         properties["年"] = get_relation(
