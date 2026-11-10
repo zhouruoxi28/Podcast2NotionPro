@@ -261,12 +261,18 @@ def get_monthly_wrapped(year, month, id):
 
 
 def get_month_from_notion():
+    next_month_first_day = pendulum.now(tz=TZ).replace(day=1).add(months=1).to_date_string()
     filter = {
         "and": [
-            {"property": "收听时长", "number": {"equals": 0}},
+            {
+                "or": [
+                    {"property": "收听时长", "number": {"equals": 0}},
+                    {"property": "收听时长", "number": {"is_empty": True}},
+                ]
+            },
             {
                 "property": "日期",
-                "date": {"before": pendulum.now(tz=TZ).replace(day=1).to_date_string()},
+                "date": {"before": next_month_first_day},
             },
         ]
     }
@@ -368,9 +374,18 @@ def insert_episode(episodes, d):
         if page_id:
             notion_helper.update_page(page_id=page_id, properties=properties)
         else:
-            notion_helper.create_page(
+            created_page = notion_helper.create_page(
                 parent=parent, properties=properties, icon=get_icon(d.get(pid)[1])
             )
+            page_id = created_page.get("id")
+            notion_episodes[eid] = {
+                "page_id": page_id,
+                "状态": episode.get("状态"),
+                "偏好标记": episode.get("偏好标记"),
+                "收听进度": episode.get("收听进度"),
+                "日期": episode.get("日期"),
+                "通义链接": episode.get("通义链接"),
+            }
 
 
 def get_progress(eids):
